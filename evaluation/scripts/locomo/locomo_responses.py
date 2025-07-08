@@ -29,6 +29,12 @@ async def locomo_response(frame, llm_client, context: str, question: str) -> str
             context=context,
             question=question,
         )
+    elif frame == "nemori":
+        # Use the same prompt as memos since they have similar context format
+        prompt = ANSWER_PROMPT_MEMOS.format(
+            context=context,
+            question=question,
+        )
     response = await llm_client.chat.completions.create(
         model=os.getenv("CHAT_MODEL"),
         messages=[
@@ -124,8 +130,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lib",
         type=str,
-        choices=["zep", "memos", "mem0", "mem0_graph", "memos_mos", "openai"],
-        help="Specify the memory framework (zep or memos or mem0 or mem0_graph or memos_mos)",
+        choices=["zep", "memos", "mem0", "mem0_graph", "memos_mos", "openai", "nemori"],
+        help="Specify the memory framework (zep or memos or mem0 or mem0_graph or memos_mos or nemori)",
     )
     parser.add_argument(
         "--version",

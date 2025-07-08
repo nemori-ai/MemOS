@@ -9,8 +9,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--lib",
     type=str,
-    choices=["zep", "memos", "mem0", "mem0_graph", "memos_mos", "langmem", "openai"],
-    help="Specify the memory framework (zep or memos or mem0 or mem0_graph or memos_mos)",
+    choices=["zep", "memos", "mem0", "mem0_graph", "memos_mos", "langmem", "openai", "nemori"],
+    help="Specify the memory framework (zep or memos or mem0 or mem0_graph or memos_mos or nemori)",
 )
 parser.add_argument(
     "--version",

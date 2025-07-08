@@ -1,3 +1,21 @@
+Background: Nemori is a project derived from our team's episodic memory indexing module within the memory system of our Tanka.ai project—an MVP implementation that we plan to open-source. Nemori's core purpose is to share our approach to building memory indexing through Nature-Inspired Episodic Memory.
+
+Given the recent surge of excellent open-source projects and research in memory systems, including this project, SuperMemory, and well-established projects like letta/mem0/zep, we've all converged on using the LoCoMo dataset as a benchmark. Consequently, we decided to participate in this benchmark with our MVP implementation that demonstrates our episodic memory indexing approach. (Special thanks to the MemOS team—we forked their project and extended the evaluation framework to support Nemori benchmarking.)
+
+Here's a brief overview of our benchmark contributions:
+
+1. Data Preprocessing
+
+Since our production system processes raw episodic data incrementally, we reused our topic segmentation strategy. This embodies the core philosophy of episodic memory creation: "aligning with the granularity of human memory event episodes." While our approach may appear inefficient and simplistic, this reflects the simplifications made for our MVP. In production, we employ more cost-effective and efficient methods.
+For episode generation, we chose the most straightforward version that best illustrates our approach, using only GPT-4o-mini for episodic memory extraction. Please refer to our prompts to understand how we guide the LLM in distilling episodic memories.
+We established a minimal BM25 index for each user's episodic memories. This might raise questions, but again, it's a simplification. Our production system employs a hybrid retrieval strategy combining sparse (BM25) and dense (vector retrieval) methods to balance recall and semantic matching capabilities, with different reranking strategies tailored to specific business needs.
+2. Retrieval
+
+With the preprocessing complete, the subsequent process is relatively straightforward. We retrieve the top 10 results (specifically, top 10 for each of the 2 speakers), have GPT-4o-mini generate responses, and follow an evaluation approach nearly identical to other projects.
+The Nemori open-source release will be completed soon (I've already included intermediate artifacts in the source code for those interested), allowing everyone to reproduce our complete results.
+
+-------------------------------
+
 <div align="center">
   <a href="https://memos.openmem.net/">
     <img src="docs/assets/banner_new.gif" alt="MemOS Banner">

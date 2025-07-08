@@ -1,9 +1,11 @@
 import argparse
+import asyncio
 import json
 import os
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from time import time
 
 import pandas as pd
@@ -18,6 +20,58 @@ from memos.configs.mem_os import MOSConfig
 from memos.configs.memory import MemoryConfigFactory
 from memos.mem_os.main import MOS
 from memos.memories.factory import MemoryFactory
+
+
+# Nemori imports
+try:
+    from nemori.retrieval import (
+        RetrievalConfig,
+        RetrievalQuery,
+        RetrievalService,
+        RetrievalStorageType,
+        RetrievalStrategy,
+    )
+    from nemori.storage.duckdb_storage import DuckDBEpisodicMemoryRepository
+    from nemori.storage.storage_types import StorageConfig
+    NEMORI_AVAILABLE = True
+except ImportError:
+    NEMORI_AVAILABLE = False
+    print("⚠️ Nemori not available. Install nemori to use nemori functionality.")
+
+
+async def get_nemori_client(user_id: str, version: str = "default"):
+    """Get Nemori client for search."""
+    if not NEMORI_AVAILABLE:
+        raise ImportError("Nemori is not available. Please install nemori.")
+    
+    # Setup storage
+    storage_dir = Path(f"results/locomo/nemori-{version}/storages")
+    db_path = storage_dir / "nemori_memory.duckdb"
+    
+    if not db_path.exists():
+        raise FileNotFoundError(f"Nemori database not found at {db_path}. Please run ingestion first.")
+    
+    storage_config = StorageConfig(
+        backend_type="duckdb",
+        connection_string=str(db_path),
+        batch_size=100,
+        cache_size=1000,
+        enable_semantic_search=False,
+    )
+    
+    episode_repo = DuckDBEpisodicMemoryRepository(storage_config)
+    await episode_repo.initialize()
+    
+    # Setup retrieval
+    retrieval_service = RetrievalService(episode_repo)
+    retrieval_config = RetrievalConfig(
+        storage_type=RetrievalStorageType.DISK,
+        storage_config={"directory": str(storage_dir)},
+    )
+    retrieval_service.register_provider(RetrievalStrategy.BM25, retrieval_config)
+    await retrieval_service.initialize()
+    
+    return retrieval_service
 
 
 def get_client(frame: str, user_id: str | None = None, version: str = "default"):
@@ -114,6 +168,15 @@ TEMPLATE_MEM0_GRAPH = """Memories for user {speaker_1_user_id}:
 """
 
 TEMPLATE_MEMOS = """Memories for user {speaker_1}:
+
+    {speaker_1_memories}
+
+    Memories for user {speaker_2}:
+
+    {speaker_2_memories}
+"""
+
+TEMPLATE_NEMORI = """Memories for user {speaker_1}:
 
     {speaker_1_memories}
 
@@ -330,6 +393,106 @@ def zep_search(client, query, group_id, top_k=20):
     return context, duration_ms
 
 
+async def nemori_search(retrieval_service, query, speaker_a_user_id, speaker_b_user_id, top_k=20):
+    """Search using Nemori."""
+    start = time()
+    
+    print(f"\n🔍 [NEMORI SEARCH] Starting search for query: '{query}'")
+    print(f"   👤 Speaker A ID: '{speaker_a_user_id}'")
+    print(f"   👤 Speaker B ID: '{speaker_b_user_id}'")
+    print(f"   📊 Top K: {top_k}")
+    
+    # Search for speaker A
+    print(f"\n🔎 [SPEAKER A] Searching for owner_id: '{speaker_a_user_id}'")
+    query_a = RetrievalQuery(text=query, owner_id=speaker_a_user_id, limit=top_k, strategy=RetrievalStrategy.BM25)
+    print(f"   📝 Query object: text='{query_a.text}', owner_id='{query_a.owner_id}', limit={query_a.limit}")
+    
+    try:
+        result_a = await retrieval_service.search(query_a)
+        print(f"   ✅ Search completed. Found {len(result_a.episodes)} episodes")
+        
+        if len(result_a.episodes) > 0:
+            print("   📋 Sample episodes for speaker A:")
+            for i, episode in enumerate(result_a.episodes[:2]):
+                print(f"     {i+1}. Title: '{episode.title}'")
+                print(f"        Content: '{episode.content[:100]}...'")
+                print(f"        Summary: '{episode.summary}'")
+        else:
+            print("   ⚠️ No episodes found for speaker A")
+            
+    except Exception as e:
+        print(f"   ❌ Search failed for speaker A: {e}")
+        result_a = type('obj', (object,), {'episodes': []})()
+    
+    # Search for speaker B
+    print(f"\n🔎 [SPEAKER B] Searching for owner_id: '{speaker_b_user_id}'")
+    query_b = RetrievalQuery(text=query, owner_id=speaker_b_user_id, limit=top_k, strategy=RetrievalStrategy.BM25)
+    print(f"   📝 Query object: text='{query_b.text}', owner_id='{query_b.owner_id}', limit={query_b.limit}")
+    
+    try:
+        result_b = await retrieval_service.search(query_b)
+        print(f"   ✅ Search completed. Found {len(result_b.episodes)} episodes")
+        
+        if len(result_b.episodes) > 0:
+            print("   📋 Sample episodes for speaker B:")
+            for i, episode in enumerate(result_b.episodes[:2]):
+                print(f"     {i+1}. Title: '{episode.title}'")
+                print(f"        Content: '{episode.content[:100]}...'")
+                print(f"        Summary: '{episode.summary}'")
+        else:
+            print("   ⚠️ No episodes found for speaker B")
+            
+    except Exception as e:
+        print(f"   ❌ Search failed for speaker B: {e}")
+        result_b = type('obj', (object,), {'episodes': []})()
+    
+    # Format results for speaker A
+    speaker_a_memories = []
+    for episode in result_a.episodes:
+        memory_text = f"{episode.title}: {episode.content}"
+        speaker_a_memories.append(memory_text)
+    
+    # Format results for speaker B
+    speaker_b_memories = []
+    for episode in result_b.episodes:
+        memory_text = f"{episode.title}: {episode.content}"
+        speaker_b_memories.append(memory_text)
+    
+    print(f"\n📊 [FORMATTING] Speaker A memories: {len(speaker_a_memories)}")
+    print(f"📊 [FORMATTING] Speaker B memories: {len(speaker_b_memories)}")
+    
+    # Format context
+    context = TEMPLATE_NEMORI.format(
+        speaker_1=speaker_a_user_id.split("_")[0] if "_" in speaker_a_user_id else speaker_a_user_id,
+        speaker_1_memories="\n".join(speaker_a_memories) if speaker_a_memories else "No relevant memories found",
+        speaker_2=speaker_b_user_id.split("_")[0] if "_" in speaker_b_user_id else speaker_b_user_id,
+        speaker_2_memories="\n".join(speaker_b_memories) if speaker_b_memories else "No relevant memories found",
+    )
+    
+    print("\n📄 [CONTEXT] Generated context preview:")
+    print(f"   {context[:200]}...")
+    
+    duration_ms = (time() - start) * 1000
+    print(f"\n⏱️ [TIMING] Search completed in {duration_ms:.2f}ms")
+    
+    return context, duration_ms
+
+
+async def search_query_async(client, query, metadata, frame, reversed_client=None, top_k=20):
+    """Async version of search_query for nemori."""
+    speaker_a_user_id = metadata.get("speaker_a_user_id")
+    speaker_b_user_id = metadata.get("speaker_b_user_id")
+    
+    if frame == "nemori":
+        context, duration_ms = await nemori_search(
+            client, query, speaker_a_user_id, speaker_b_user_id, top_k
+        )
+        return context, duration_ms
+    else:
+        # For non-async frameworks, call the sync version
+        return search_query(client, query, metadata, frame, reversed_client, top_k)
+
+
 def search_query(client, query, metadata, frame, reversed_client=None, top_k=20):
     conv_id = metadata.get("conv_id")
     speaker_a = metadata.get("speaker_a")
@@ -369,14 +532,93 @@ def load_existing_results(frame, version, group_idx):
     return {}, False
 
 
+async def process_user_nemori(group_idx, locomo_df, frame, version, top_k=20):
+    """Process user for Nemori framework."""
+    print(f"\n🚀 [NEMORI PROCESS] Starting processing for user {group_idx}")
+    
+    search_results = defaultdict(list)
+    qa_set = locomo_df["qa"].iloc[group_idx]
+    conversation = locomo_df["conversation"].iloc[group_idx]
+    speaker_a = conversation.get("speaker_a")
+    speaker_b = conversation.get("speaker_b")
+    speaker_a_user_id = f"{speaker_a.lower().replace(' ', '_')}_{group_idx}"
+    speaker_b_user_id = f"{speaker_b.lower().replace(' ', '_')}_{group_idx}"
+    conv_id = f"locomo_exp_user_{group_idx}"
+    
+    print(f"   👥 Original speakers: '{speaker_a}' & '{speaker_b}'")
+    print(f"   🆔 Generated IDs: '{speaker_a_user_id}' & '{speaker_b_user_id}'")
+    print(f"   📝 Conversation ID: '{conv_id}'")
+    print(f"   ❓ QA set size: {len(qa_set)}")
+    
+    existing_results, loaded = load_existing_results(frame, version, group_idx)
+    if loaded:
+        print(f"Loaded existing results for group {group_idx}")
+        return existing_results
+    
+    metadata = {
+        "speaker_a": speaker_a,
+        "speaker_b": speaker_b,
+        "speaker_a_user_id": speaker_a_user_id,
+        "speaker_b_user_id": speaker_b_user_id,
+        "conv_idx": group_idx,
+        "conv_id": conv_id,
+    }
+    
+    # Get nemori client
+    client = await get_nemori_client(conv_id, version)
+    
+    async def process_qa(qa):
+        query = qa.get("question")
+        if qa.get("category") == 5:
+            return None
+        
+        context, duration_ms = await search_query_async(
+            client, query, metadata, frame, top_k=top_k
+        )
+        
+        if not context:
+            print(f"No context found for query: {query}")
+            context = ""
+        return {"query": query, "context": context, "duration_ms": duration_ms}
+    
+    # Process QAs sequentially for nemori (since it's async)
+    for qa in tqdm(qa_set, desc=f"Processing user {group_idx}"):
+        result = await process_qa(qa)
+        if result:
+            context_preview = (
+                result["context"][:20] + "..." if result["context"] else "No context"
+            )
+            print(
+                {
+                    "query": result["query"],
+                    "context": context_preview,
+                    "duration_ms": result["duration_ms"],
+                }
+            )
+            search_results[conv_id].append(result)
+    
+    # Cleanup
+    if hasattr(client, 'close'):
+        await client.close()
+    
+    os.makedirs(f"results/locomo/{frame}-{version}/tmp/", exist_ok=True)
+    with open(
+        f"results/locomo/{frame}-{version}/tmp/{frame}_locomo_search_results_{group_idx}.json", "w"
+    ) as f:
+        json.dump(dict(search_results), f, indent=2)
+        print(f"Save search results {group_idx}")
+    
+    return search_results
+
+
 def process_user(group_idx, locomo_df, frame, version, top_k=20, num_workers=1):
     search_results = defaultdict(list)
     qa_set = locomo_df["qa"].iloc[group_idx]
     conversation = locomo_df["conversation"].iloc[group_idx]
     speaker_a = conversation.get("speaker_a")
     speaker_b = conversation.get("speaker_b")
-    speaker_a_user_id = f"{speaker_a}_{group_idx}"
-    speaker_b_user_id = f"{speaker_b}_{group_idx}"
+    speaker_a_user_id = f"{speaker_a.lower().replace(' ', '_')}_{group_idx}"
+    speaker_b_user_id = f"{speaker_b.lower().replace(' ', '_')}_{group_idx}"
     conv_id = f"locomo_exp_user_{group_idx}"
 
     existing_results, loaded = load_existing_results(frame, version, group_idx)
@@ -447,8 +689,41 @@ def process_user(group_idx, locomo_df, frame, version, top_k=20, num_workers=1):
     return search_results
 
 
+async def main_nemori(version="default", top_k=20):
+    """Main function for Nemori search."""
+    load_dotenv()
+    locomo_df = pd.read_json("data/locomo/locomo10.json")
+
+    num_conv = 10
+    frame = "nemori"
+    os.makedirs(f"results/locomo/{frame}-{version}/", exist_ok=True)
+    all_search_results = defaultdict(list)
+
+    for idx in range(num_conv):
+        try:
+            print(f"Processing user {idx}...")
+            user_results = await process_user_nemori(idx, locomo_df, frame, version, top_k)
+            for conv_id, results in user_results.items():
+                all_search_results[conv_id].extend(results)
+        except Exception as e:
+            print(f"User {idx} generated an exception: {e}")
+
+    with open(f"results/locomo/{frame}-{version}/{frame}_locomo_search_results.json", "w") as f:
+        json.dump(dict(all_search_results), f, indent=2)
+        print("Save all search results")
+
+
 def main(frame, version="default", num_workers=1, top_k=20):
     load_dotenv()
+    
+    if frame == "nemori":
+        if not NEMORI_AVAILABLE:
+            print("❌ Nemori is not available. Please install nemori to use this framework.")
+            return
+        # Run async main for nemori
+        asyncio.run(main_nemori(version, top_k))
+        return
+    
     locomo_df = pd.read_json("data/locomo/locomo10.json")
 
     num_users = 10
@@ -474,8 +749,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--lib",
         type=str,
-        choices=["zep", "memos", "mem0", "mem0_graph", "memos_mos", "langmem"],
-        help="Specify the memory framework (zep or memos or mem0 or mem0_graph or memos_mos)",
+        choices=["zep", "memos", "mem0", "mem0_graph", "memos_mos", "langmem", "nemori"],
+        help="Specify the memory framework (zep or memos or mem0 or mem0_graph or memos_mos or nemori)",
     )
     parser.add_argument(
         "--version",
