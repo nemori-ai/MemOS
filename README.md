@@ -9,6 +9,7 @@ Here's a brief overview of our benchmark contributions:
 Since our production system processes raw episodic data incrementally, we reused our topic segmentation strategy. This embodies the core philosophy of episodic memory creation: "aligning with the granularity of human memory event episodes." While our approach may appear inefficient and simplistic, this reflects the simplifications made for our MVP. In production, we employ more cost-effective and efficient methods.
 For episode generation, we chose the most straightforward version that best illustrates our approach, using only GPT-4o-mini for episodic memory extraction. Please refer to our prompts to understand how we guide the LLM in distilling episodic memories.
 We established a minimal BM25 index for each user's episodic memories. This might raise questions, but again, it's a simplification. Our production system employs a hybrid retrieval strategy combining sparse (BM25) and dense (vector retrieval) methods to balance recall and semantic matching capabilities, with different reranking strategies tailored to specific business needs.
+
 2. Retrieval
 
 With the preprocessing complete, the subsequent process is relatively straightforward. We retrieve the top 10 results (specifically, top 10 for each of the 2 speakers), have GPT-4o-mini generate responses, and follow an evaluation approach nearly identical to other projects.
