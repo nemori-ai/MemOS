@@ -207,7 +207,7 @@ class NemoriExperiment:
     def parse_locomo_timestamp(self, timestamp_str: str) -> datetime:
         """Parse LoComo timestamp format to datetime object."""
         try:
-            timestamp_str = timestamp_str.replace("\s+", " ").strip()
+            timestamp_str = timestamp_str.replace("\\s+", " ").strip()
             dt = datetime.strptime(timestamp_str, "%I:%M %p on %d %B, %Y")
             return dt
         except ValueError as e:
@@ -261,10 +261,16 @@ class NemoriExperiment:
                         unique_id = f"{speaker_name.lower().replace(' ', '_')}_{conversation_id}"
                         speaker_name_to_id[speaker_name] = unique_id
 
+                    # Process content with image information if present
+                    content = msg["text"]
+                    if "img_url" in msg and msg["img_url"]:
+                        blip_caption = msg.get("blip_caption", "an image")
+                        content = f"[{speaker_name} shared an image: {blip_caption}] {content}"
+
                     message = {
                         "speaker_id": speaker_name_to_id[speaker_name],
                         "user_name": speaker_name,
-                        "content": msg["text"],
+                        "content": content,
                         "timestamp": iso_timestamp,
                         "original_timestamp": conv[session_time_key],
                         "dia_id": msg["dia_id"],
@@ -320,11 +326,11 @@ class NemoriExperiment:
             },
         )
 
-    async def _detect_conversation_boundaries(self, messages: list) -> list[tuple[int, int]]:
+    async def _detect_conversation_boundaries(self, messages: list) -> list[tuple[int, int, str]]:
         """Detect conversation boundaries using the conversation builder's boundary detection."""
         print(f"\n     🔍 Starting boundary detection for {len(messages)} messages")
 
-        boundaries = [(0, len(messages) - 1)]  # Default: single episode
+        boundaries = [(0, len(messages) - 1, "Single episode - no boundary detection")]  # Default: single episode
 
         if not self.llm_provider or len(messages) <= 1:
             print("     ⚠️ No LLM provider or too few messages, using single episode")
@@ -350,6 +356,7 @@ class NemoriExperiment:
         # Detect boundaries by checking each message against conversation history
         boundaries = []
         current_start = 0
+        current_episode_reason = "Episode start"
 
         for i in range(1, len(message_dicts)):
             # Check if we should end the current episode at this message
@@ -363,12 +370,13 @@ class NemoriExperiment:
 
             if should_end:
                 # End current episode and start new one
-                boundaries.append((current_start, i - 1))
+                boundaries.append((current_start, i - 1, current_episode_reason))
                 print(f"     ✂️ Boundary at message {i}: {reason}")
                 current_start = i
+                current_episode_reason = reason  # The reason becomes the context for the next episode
 
         # Add the final segment
-        boundaries.append((current_start, len(message_dicts) - 1))
+        boundaries.append((current_start, len(message_dicts) - 1, current_episode_reason))
 
         print(f"     📊 Detected {len(boundaries)} conversation segments")
 
@@ -390,7 +398,7 @@ class NemoriExperiment:
             return len(messages) * 30.0
 
     async def _build_episodes_for_speaker(
-        self, raw_data: RawEventData, owner_id: str, episode_boundaries: list[tuple[int, int]]
+        self, raw_data: RawEventData, owner_id: str, episode_boundaries: list[tuple[int, int, str]]
     ) -> list:
         """Build episodes for a specific speaker using pre-detected boundaries."""
         conversation_data = ConversationData(raw_data)
@@ -401,7 +409,7 @@ class NemoriExperiment:
             return episodes
 
         # Create episodes for each boundary segment
-        for start_idx, end_idx in episode_boundaries:
+        for start_idx, end_idx, boundary_reason in episode_boundaries:
             segment_messages = messages[start_idx : end_idx + 1]
 
             # Create a new RawEventData for this segment
@@ -429,6 +437,7 @@ class NemoriExperiment:
                     "segment_end": end_idx,
                     "total_segments": len(episode_boundaries),
                     "owner_id": owner_id,
+                    "boundary_reason": boundary_reason,
                 },
             )
 

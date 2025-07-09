@@ -176,13 +176,9 @@ TEMPLATE_MEMOS = """Memories for user {speaker_1}:
     {speaker_2_memories}
 """
 
-TEMPLATE_NEMORI = """Memories for user {speaker_1}:
+TEMPLATE_NEMORI = """Episodes memories for conversation between {speaker_1} and {speaker_2}:
 
-    {speaker_1_memories}
-
-    Memories for user {speaker_2}:
-
-    {speaker_2_memories}
+    {speaker_memories}
 """
 
 
@@ -403,6 +399,9 @@ async def nemori_search(retrieval_service, query, speaker_a_user_id, speaker_b_u
     print(f"   📊 Top K: {top_k}")
     
     # Search for speaker A
+    # From the perspective of episodic memory construction in the current MVP version, 
+    # no specialized processing is done for any individual's memories, 
+    # so searching any one person's memories is sufficient
     print(f"\n🔎 [SPEAKER A] Searching for owner_id: '{speaker_a_user_id}'")
     query_a = RetrievalQuery(text=query, owner_id=speaker_a_user_id, limit=top_k, strategy=RetrievalStrategy.BM25)
     print(f"   📝 Query object: text='{query_a.text}', owner_id='{query_a.owner_id}', limit={query_a.limit}")
@@ -424,49 +423,19 @@ async def nemori_search(retrieval_service, query, speaker_a_user_id, speaker_b_u
         print(f"   ❌ Search failed for speaker A: {e}")
         result_a = type('obj', (object,), {'episodes': []})()
     
-    # Search for speaker B
-    print(f"\n🔎 [SPEAKER B] Searching for owner_id: '{speaker_b_user_id}'")
-    query_b = RetrievalQuery(text=query, owner_id=speaker_b_user_id, limit=top_k, strategy=RetrievalStrategy.BM25)
-    print(f"   📝 Query object: text='{query_b.text}', owner_id='{query_b.owner_id}', limit={query_b.limit}")
-    
-    try:
-        result_b = await retrieval_service.search(query_b)
-        print(f"   ✅ Search completed. Found {len(result_b.episodes)} episodes")
-        
-        if len(result_b.episodes) > 0:
-            print("   📋 Sample episodes for speaker B:")
-            for i, episode in enumerate(result_b.episodes[:2]):
-                print(f"     {i+1}. Title: '{episode.title}'")
-                print(f"        Content: '{episode.content[:100]}...'")
-                print(f"        Summary: '{episode.summary}'")
-        else:
-            print("   ⚠️ No episodes found for speaker B")
-            
-    except Exception as e:
-        print(f"   ❌ Search failed for speaker B: {e}")
-        result_b = type('obj', (object,), {'episodes': []})()
-    
     # Format results for speaker A
-    speaker_a_memories = []
+    speaker_memories = []
     for episode in result_a.episodes:
         memory_text = f"{episode.title}: {episode.content}"
-        speaker_a_memories.append(memory_text)
+        speaker_memories.append(memory_text)
     
-    # Format results for speaker B
-    speaker_b_memories = []
-    for episode in result_b.episodes:
-        memory_text = f"{episode.title}: {episode.content}"
-        speaker_b_memories.append(memory_text)
-    
-    print(f"\n📊 [FORMATTING] Speaker A memories: {len(speaker_a_memories)}")
-    print(f"📊 [FORMATTING] Speaker B memories: {len(speaker_b_memories)}")
+    print(f"\n📊 [FORMATTING] Speaker memories: {len(speaker_memories)}")
     
     # Format context
     context = TEMPLATE_NEMORI.format(
         speaker_1=speaker_a_user_id.split("_")[0] if "_" in speaker_a_user_id else speaker_a_user_id,
-        speaker_1_memories="\n".join(speaker_a_memories) if speaker_a_memories else "No relevant memories found",
         speaker_2=speaker_b_user_id.split("_")[0] if "_" in speaker_b_user_id else speaker_b_user_id,
-        speaker_2_memories="\n".join(speaker_b_memories) if speaker_b_memories else "No relevant memories found",
+        speaker_memories="\n".join(speaker_memories) if speaker_memories else "No relevant memories found",
     )
     
     print("\n📄 [CONTEXT] Generated context preview:")
