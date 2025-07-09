@@ -14,7 +14,7 @@ We established a minimal BM25 index for each user's episodic memories. This migh
 
 2. Retrieval
 
-With the preprocessing complete, the subsequent process is relatively straightforward. We retrieve the top 10 results (specifically, top 10 for each of the 2 speakers), have GPT-4o-mini generate responses, and follow an evaluation approach nearly identical to other projects.
+With the preprocessing complete, the subsequent process is relatively straightforward. We retrieve the top 20 results, have GPT-4o-mini generate responses, and follow an evaluation approach nearly identical to other projects.
 The Nemori open-source release will be completed soon (I've already included [intermediate artifacts](https://github.com/nemori-ai/MemOS/tree/nemori-eval/evaluation/nemori_results) in the source code for those interested), allowing everyone to reproduce our complete results.
 
 <a href="scores.png">
