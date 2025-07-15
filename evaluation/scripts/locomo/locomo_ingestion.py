@@ -263,7 +263,7 @@ class NemoriExperiment:
 
                     # Process content with image information if present
                     content = msg["text"]
-                    if "img_url" in msg and msg["img_url"]:
+                    if msg.get("img_url"):
                         blip_caption = msg.get("blip_caption", "an image")
                         content = f"[{speaker_name} shared an image: {blip_caption}] {content}"
 
@@ -364,15 +364,17 @@ class NemoriExperiment:
             new_message = message_dicts[i]
 
             # Use async boundary detection
-            should_end, reason = await builder._detect_boundary(
-                conversation_history=current_episode_history, new_messages=[new_message]
+            should_end, reason, masked_boundary_detected = await builder._detect_boundary(
+                conversation_history=current_episode_history,
+                new_messages=[new_message],
+                smart_mask=True,
             )
 
             if should_end:
                 # End current episode and start new one
                 boundaries.append((current_start, i - 1, current_episode_reason))
-                print(f"     ✂️ Boundary at message {i}: {reason}")
-                current_start = i
+                print(f"     ✂️ Boundary at message {i}: {reason}, masked_boundary_detected: {masked_boundary_detected}")
+                current_start = i if not masked_boundary_detected else i - 1
                 current_episode_reason = reason  # The reason becomes the context for the next episode
 
         # Add the final segment
