@@ -1,3 +1,5 @@
+**Archived. Please visit [Nemori Repo](https://github.com/nemori-ai/nemori/) to view the latest version.**
+
 Background: Nemori is a project derived from our team's episodic memory indexing module within the memory system of our Tanka.ai project—an MVP implementation that we plan to open-source. Nemori's core purpose is to share our approach to building memory indexing through Nature-Inspired Episodic Memory.
 
 Given the recent surge of excellent open-source projects and research in memory systems, including this project, SuperMemory, and well-established projects like letta/mem0/zep, we've all converged on using the LoCoMo dataset as a benchmark. Consequently, we decided to participate in this benchmark with our MVP implementation that demonstrates our episodic memory indexing approach. (Special thanks to the MemOS team—we forked their project and extended the evaluation framework to support Nemori benchmarking.)
